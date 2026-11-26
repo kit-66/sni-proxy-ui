@@ -1,0 +1,9 @@
+.env
+db/
+acme_data/
+certs/
+www/.well-known/
+docker-compose.override.yml
+*.log
+__pycache__/
+data/ui-auth

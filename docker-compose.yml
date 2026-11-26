@@ -1,0 +1,29 @@
+services:
+  sni-proxy:
+    build: .
+    container_name: sni_proxy
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - UI_USER=${UI_USER:-}
+      - SNI_UI_PASSWORD=${SNI_UI_PASSWORD:-}
+      - XUI_HOST=${XUI_HOST:-3xui_app}
+      - XUI_PORTS=${XUI_PORTS:-}
+    ports:
+      - "80:80"                              # ACME http-01
+      - "443:443"                            # SNI-маршрутизация
+      - "${UI_PORT_BIND}:8085:8085"          # SNI-UI
+    volumes:
+      # Все данные лежат прямо в папках проекта — никаких скрытых named volumes
+      - ./certs:/etc/nginx/certs
+      - ./www:/var/www
+      - ./acme_data:/acme.sh                # вместо именованного тома — папка в проекте
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./data:/data
+      - ./static:/app/static                # мини-UI (HTML/JS)
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    driver: bridge

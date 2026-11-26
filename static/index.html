@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>SNI Proxy UI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+    body { max-width: 800px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+    h3 { margin-top: 0; }
+    .card { background: #fafafa; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    label { display: block; margin-bottom: .3rem; font-weight: 600; }
+    input[type="password"], input[type="text"], input[type="number"] { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 4px; margin-bottom: .5rem; }
+    textarea { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 4px; margin-bottom: .5rem; font-family: monospace; font-size: .85rem; }
+    .btn { padding: .5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-secondary { background: #6b7280; color: white; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+    .status { padding: .3rem .6rem; border-radius: 999px; font-size: .85rem; font-weight: 600; }
+    .status-pending { background: #fef3c7; color: #92400e; }
+    .status-issued { background: #d1fae5; color: #065f46; }
+    .status-error { background: #fee2e2; color: #991b1b; }
+    .status-staging { background: #e0e7ff; color: #3730a3; }
+    .hidden { display: none !important; }
+    .error { color: #dc2626; font-size: .9rem; margin-top: .3rem; }
+    .success { color: #16a34a; font-size: .9rem; margin-top: .3rem; }
+    .token-info { background: #f3f4f6; padding: .5rem; border-radius: 4px; font-family: monospace; font-size: .8rem; word-break: break-all; margin-bottom: .5rem; }
+    .domain-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .5rem 0; border-bottom: 1px solid #eee; }
+    .domain-name { font-weight: 600; min-width: 180px; word-break: break-all; }
+    .domain-meta { font-size: .8rem; color: #666; font-family: monospace; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal { background: white; border-radius: 8px; padding: 1.5rem; width: 100%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+    .modal h3 { margin-top: 0; }
+    .form-group { margin-bottom: 1rem; }
+    .form-row { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
+    .proxy-row { display: flex; gap: .5rem; }
+    .proxy-row input { flex: 1; }
+    .proxy-row input[type="number"] { max-width: 100px; }
+    .preset-row { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .6rem; }
+    .preset-btn { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; padding: .3rem .7rem; border-radius: 999px; font-size: .85rem; }
+    .preset-btn:hover { background: #e0e7ff; }
+  </style>
+</head>
+<body>
+  <h1>SNI Proxy UI</h1>
+
+  <!-- Логин -->
+  <div id="loginCard" class="card">
+    <label>Пароль</label>
+    <input type="password" id="pwd" placeholder="Введите пароль из логов/файла data/ui-auth">
+    <button class="btn btn-primary" onclick="doLogin()">Войти</button>
+    <div id="loginErr" class="error hidden"></div>
+  </div>
+
+  <!-- Основной UI (скрыт до входа) -->
+  <div id="mainUI" class="hidden">
+    <div id="tokenInfo" class="token-info hidden"></div>
+
+    <!-- Добавить домен -->
+    <div class="card">
+      <h3>Добавить домен</h3>
+      <div class="row">
+        <input type="text" id="newDomain" placeholder="example.com" style="flex:1;">
+        <button class="btn btn-primary" onclick="showAddModal()">Добавить</button>
+      </div>
+      <div id="addErr" class="error hidden"></div>
+      <div id="addOk" class="success hidden"></div>
+    </div>
+
+    <!-- Список доменов -->
+    <div class="card">
+      <h3>Домены</h3>
+      <div id="domainsList">Загрузка…</div>
+    </div>
+  </div>
+
+  <!-- Модалка добавления/редактирования -->
+  <div id="modalOverlay" class="modal-overlay hidden" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <h3 id="modalTitle">Добавить домен</h3>
+      <div class="form-group">
+        <label>Домен <span id="domainRequired">*</span></label>
+        <input type="text" id="modalDomain" placeholder="example.com">
+      </div>
+      <div class="form-group">
+        <label>Режим</label>
+        <div class="row">
+          <label style="display:flex;align-items:center;gap:.3rem;cursor:pointer;">
+            <input type="radio" name="mode" value="static" id="modeStatic" onclick="toggleMode()"> Статика (root)
+          </label>
+          <label style="display:flex;align-items:center;gap:.3rem;cursor:pointer;">
+            <input type="radio" name="mode" value="proxy" id="modeProxy" onclick="toggleMode()"> Прокси (порт бэкенда)
+          </label>
+        </div>
+      </div>
+      <div class="form-group" id="staticFields">
+        <label>Root путь</label>
+        <input type="text" id="modalRoot" placeholder="/var/www/site" value="/var/www/site">
+      </div>
+      <div class="form-group hidden" id="proxyFields">
+        <label>Пресеты портов панели 3x-ui</label>
+        <div id="presetButtons" class="preset-row"></div>
+        <div class="proxy-row">
+          <input type="text" id="modalProxyHost" placeholder="Хост бэкенда (localhost)" value="localhost">
+          <input type="number" id="modalProxyPort" placeholder="Порт" min="1" max="65535">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Дополнительные location (nginx config)</label>
+        <textarea id="modalExtra" placeholder="location /api { proxy_pass http://backend:8080; }" rows="4"></textarea>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;">
+          <input type="checkbox" id="modalStaging" style="width:auto;">
+          Тестовый сертификат (Let's Encrypt staging)
+        </label>
+        <div class="domain-meta">Не тратит production-лимит (5/нед). Такие сертификаты браузеры не доверяют — только для проверки настроек.</div>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-secondary" onclick="closeModal()">Отмена</button>
+        <button class="btn btn-primary" id="modalSubmitBtn" onclick="submitModal()">Добавить</button>
+      </div>
+      <div id="modalErr" class="error hidden"></div>
+    </div>
+  </div>
+
+<script>
+const API = "/api";
+let token = null;
+let modalMode = "add"; // "add" | "edit"
+let editDomain = null;
+let presets = { host: "3xui_app", ports: [] };
+
+function show(el, show) { el.classList.toggle("hidden", !show); }
+function setText(el, txt) { el.textContent = txt; }
+
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(API + path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function doLogin() {
+  const pwd = document.getElementById("pwd").value;
+  try {
+    const data = await api("/login", { method: "POST", body: JSON.stringify({ password: pwd }) });
+    token = data.token;
+    show(document.getElementById("loginCard"), false);
+    show(document.getElementById("mainUI"), true);
+    setText(document.getElementById("tokenInfo"), "Bearer token: " + token);
+    show(document.getElementById("tokenInfo"), true);
+    loadPresets();
+    loadDomains();
+  } catch (e) {
+    const err = document.getElementById("loginErr");
+    setText(err, e.message);
+    show(err, true);
+  }
+}
+
+async function loadPresets() {
+  try {
+    presets = await api("/presets");
+  } catch (e) {
+    presets = { host: "3xui_app", ports: [] };
+  }
+}
+
+function renderPresetButtons() {
+  const wrap = document.getElementById("presetButtons");
+  if (!presets.ports || !presets.ports.length) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = presets.ports.map(p =>
+    `<button type="button" class="preset-btn" onclick="applyPreset(${p})">${p}</button>`
+  ).join("");
+}
+
+function applyPreset(port) {
+  document.getElementById("modeProxy").checked = true;
+  toggleMode();
+  document.getElementById("modalProxyHost").value = presets.host || "3xui_app";
+  document.getElementById("modalProxyPort").value = port;
+}
+
+async function loadDomains() {
+  try {
+    const domains = await api("/domains");
+    renderDomains(domains);
+  } catch (e) {
+    document.getElementById("domainsList").innerHTML = '<span class="error">Ошибка: ' + e.message + '</span>';
+  }
+}
+
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({'&':'&','<':'<','>':'>','"':'"',"'":'''}[c])); }
+
+function renderDomains(domains) {
+  const wrap = document.getElementById("domainsList");
+  if (!domains.length) {
+    wrap.innerHTML = "<p>Доменов нет. Добавьте первый.</p>";
+    return;
+  }
+  wrap.innerHTML = domains.map(d => {
+    const isProxy = d.proxy_port != null;
+    const meta = isProxy
+      ? `proxy: ${escapeHtml(d.proxy_host || 'localhost')}:${d.proxy_port}`
+      : `root: ${escapeHtml(d.root || '/var/www/site')}`;
+    const stagingBadge = d.staging ? `<span class="status status-staging" title="Тестовый сертификат (staging), браузеры не доверяют">Тест</span>` : '';
+    return `
+    <div class="domain-row">
+      <span class="domain-name">${escapeHtml(d.domain)}</span>
+      <span class="status status-${d.status || 'pending'}">${d.status || 'pending'}</span>
+      ${stagingBadge}
+      <span class="domain-meta">${meta}</span>
+      ${d.status !== 'issued' ? `<button class="btn btn-primary" onclick="issueCert('${escapeHtml(d.domain)}')">Выпустить сертификат</button>` : '<span class="success">✓ Сертификат выпущен</span>'}
+      <button class="btn btn-secondary" onclick="showEditModal('${escapeHtml(d.domain)}')">Правка</button>
+      <button class="btn btn-danger" onclick="confirmDelete('${escapeHtml(d.domain)}')">Удалить</button>
+    </div>
+  `}).join("");
+}
+
+async function issueCert(domain) {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = "Выпуск…";
+  try {
+    await api("/certificates", { method: "POST", body: JSON.stringify({ domain }) });
+    btn.textContent = "Выпущен";
+    btn.classList.remove("btn-primary");
+    btn.classList.add("btn-danger");
+    btn.disabled = true;
+    loadDomains();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Выпустить сертификат";
+    alert("Ошибка: " + e.message);
+  }
+}
+
+function confirmDelete(domain) {
+  if (!confirm(`Удалить домен ${domain}?\nЭто удалит конфиг, симлинки сертификатов и запись из SNI map.`)) return;
+  deleteDomain(domain);
+}
+
+async function deleteDomain(domain) {
+  try {
+    await api("/domains/" + encodeURIComponent(domain), { method: "DELETE" });
+    loadDomains();
+  } catch (e) {
+    alert("Ошибка удаления: " + e.message);
+  }
+}
+
+// --- Модалка ---
+function toggleMode() {
+  const isProxy = document.getElementById("modeProxy").checked;
+  show(document.getElementById("staticFields"), !isProxy);
+  show(document.getElementById("proxyFields"), isProxy);
+}
+
+function showAddModal() {
+  modalMode = "add";
+  editDomain = null;
+  document.getElementById("modalTitle").textContent = "Добавить домен";
+  document.getElementById("modalDomain").value = "";
+  document.getElementById("modalDomain").disabled = false;
+  document.getElementById("domainRequired").style.display = "inline";
+  document.getElementById("modeStatic").checked = true;
+  document.getElementById("modeProxy").checked = false;
+  toggleMode();
+  document.getElementById("modalRoot").value = "/var/www/site";
+  document.getElementById("modalProxyHost").value = presets.host || "localhost";
+  document.getElementById("modalProxyPort").value = "";
+  document.getElementById("modalExtra").value = "";
+  document.getElementById("modalStaging").checked = false;
+  document.getElementById("modalSubmitBtn").textContent = "Добавить";
+  renderPresetButtons();
+  show(document.getElementById("modalErr"), false);
+  show(document.getElementById("modalOverlay"), true);
+}
+
+function showEditModal(domain) {
+  modalMode = "edit";
+  editDomain = domain;
+  api("/domains").then(domains => {
+    const d = domains.find(x => x.domain === domain);
+    if (!d) return alert("Домен не найден");
+    document.getElementById("modalTitle").textContent = "Правка домена";
+    document.getElementById("modalDomain").value = d.domain;
+    document.getElementById("modalDomain").disabled = true;
+    document.getElementById("domainRequired").style.display = "none";
+    const isProxy = d.proxy_port != null;
+    document.getElementById("modeStatic").checked = !isProxy;
+    document.getElementById("modeProxy").checked = isProxy;
+    toggleMode();
+    document.getElementById("modalRoot").value = d.root || "/var/www/site";
+    document.getElementById("modalProxyHost").value = d.proxy_host || presets.host || "localhost";
+    document.getElementById("modalProxyPort").value = d.proxy_port != null ? d.proxy_port : "";
+    document.getElementById("modalExtra").value = d.extra_locations || "";
+    document.getElementById("modalStaging").checked = !!d.staging;
+    document.getElementById("modalSubmitBtn").textContent = "Сохранить";
+    renderPresetButtons();
+    show(document.getElementById("modalErr"), false);
+    show(document.getElementById("modalOverlay"), true);
+  }).catch(e => alert("Ошибка: " + e.message));
+}
+
+function closeModal() {
+  show(document.getElementById("modalOverlay"), false);
+}
+
+async function submitModal() {
+  const domain = document.getElementById("modalDomain").value.trim().toLowerCase();
+  const isProxy = document.getElementById("modeProxy").checked;
+  const root = document.getElementById("modalRoot").value.trim() || "/var/www/site";
+  const proxy_host = document.getElementById("modalProxyHost").value.trim() || "localhost";
+  const proxy_port = document.getElementById("modalProxyPort").value ? parseInt(document.getElementById("modalProxyPort").value, 10) : null;
+  const extra = document.getElementById("modalExtra").value.trim();
+  const staging = document.getElementById("modalStaging").checked;
+  const errEl = document.getElementById("modalErr");
+
+  if (modalMode === "add" && !domain) {
+    setText(errEl, "Введите домен");
+    show(errEl, true);
+    return;
+  }
+  if (isProxy && !proxy_port) {
+    setText(errEl, "Укажите порт бэкенда");
+    show(errEl, true);
+    return;
+  }
+
+  const payload = isProxy
+    ? { root, proxy_host, proxy_port, extra_locations: extra, staging }
+    : { root, extra_locations: extra, staging };
+
+  try {
+    if (modalMode === "add") {
+      payload.domain = domain;
+      await api("/domains", { method: "POST", body: JSON.stringify(payload) });
+    } else {
+      await api("/domains/" + encodeURIComponent(editDomain), { method: "PUT", body: JSON.stringify(payload) });
+    }
+    closeModal();
+    loadDomains();
+  } catch (e) {
+    setText(errEl, e.message);
+    show(errEl, true);
+  }
+}
+
+loadDomains();
+</script>
+</body>
+</html>

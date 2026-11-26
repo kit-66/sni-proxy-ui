@@ -1,0 +1,35 @@
+[Unit]
+Description=SNI Proxy + UI (Nginx + acme.sh + Flask) via Podman Compose
+After=network.target podman-containers.service
+Wants=podman-containers.service
+
+[Service]
+# Запуск из корневой папки проекта (укажи свой путь!)
+WorkingDirectory=/opt/sni-proxy
+
+# Используем podman compose (не docker)
+ExecStart=/usr/bin/podman compose up --abort-on-container-exit
+ExecStop=/usr/bin/podman compose down
+ExecReload=/usr/bin/podman compose restart
+
+# Перезапуск при падении контейнеров (важно для стабильности)
+Restart=always
+RestartSec=10
+
+# Не перезапускать, если контейнер явно остановлен пользователем
+RestartPreventExitStatus=0 255
+
+# Ограничения ресурсов (опционально, но полезно на VPS)
+MemoryLimit=512M
+CPUQuota=80%
+
+# Пользователь: root нужен для портов 80/443 и bind-mount прав
+User=root
+Group=root
+
+# Логи будут идти в journalctl (удобно для отладки)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
